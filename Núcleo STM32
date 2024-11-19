@@ -1,0 +1,138 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.c
+  * @brief          : Main program body
+  ******************************************************************************
+  * @attention
+  * Código generado para gestionar un proyecto que utiliza una pantalla LCD,
+  * una tarjeta SD, y comunica datos a través de UART.
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "fatfs.h"
+
+/* Private includes ----------------------------------------------------------*/
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "fatfs_sd.h"  // Biblioteca para gestionar la SD
+#include "ili9341.h"   // Biblioteca para la pantalla LCD
+
+/* Private variables ---------------------------------------------------------*/
+SPI_HandleTypeDef hspi1;  // Manejo de comunicación SPI
+UART_HandleTypeDef huart5, huart2; // Manejo de comunicación UART
+
+// Variables de menú
+uint8_t Menu[] = "\nPresione un Boton para seleccionar una opcion: \n";
+uint8_t Op1[] = "Derecha - Medir Intensidad Luminica \n";
+uint8_t Op2[] = "Izquierda - Guardar Datos en la SD \n";
+
+// Variables de interrupción
+int estado1, estado2; // Flags para detectar estados
+uint8_t valores[2];  // Para almacenar datos recibidos por UART
+uint8_t conex[1] = "1";  // Comando para activar el sensor
+uint8_t conex2[1] = "2"; // Comando para guardar datos
+char resultado[10];  // Para guardar resultados convertidos
+
+// Variables de pantalla LCD
+uint8_t intro[] = "BIENVENIDOS";
+uint8_t pro[] = "PROYECTO 3";
+uint8_t nom[] = "DIEGO Y LUCHY";
+uint8_t tit[] = "INTENSIDAD LUMINICA";
+extern uint8_t baja[], media[], alta[], cargando[];  // Iconos precargados
+
+// Variables SPI para manejo de la SD
+FATFS fs;  // Sistema de archivos
+FIL fil;   // Archivo en la SD
+FRESULT fres;  // Resultado de operaciones
+char buffer[100];  // Buffer para datos
+
+/* Funciones privadas ---------------------------------------------------------*/
+// Mostrar menú en la consola serial
+void MostrarMenu(void) {
+    HAL_UART_Transmit(&huart2, Menu, sizeof(Menu), 100);
+    HAL_UART_Transmit(&huart2, Op1, sizeof(Op1), 100);
+    HAL_UART_Transmit(&huart2, Op2, sizeof(Op2), 100);
+}
+
+// Guardar datos en la tarjeta SD
+void DatosSD(void) {
+    fres = f_mount(&fs, "/", 0);  // Montar la SD
+    fres = f_open(&fil, "Prueba.txt", FA_OPEN_APPEND | FA_WRITE | FA_READ);  // Abrir archivo
+    f_puts("\nEl valor medido es:\n", &fil);  // Escribir encabezado
+    f_puts(resultado, &fil);  // Escribir resultado
+    f_close(&fil);  // Cerrar archivo
+    f_mount(NULL, "", 1);  // Desmontar SD
+}
+
+// Mostrar mensaje de "Cargando" en la pantalla LCD
+void mostrarCargando(void) {
+    FillRect(0, 0, 319, 239, 0x0000);  // Limpiar pantalla
+    LCD_Print("CARGANDO", 92, 97, 2, 0xFFFF, 0x0000);  // Mostrar texto
+    LCD_Bitmap(71, 120, 200, 64, cargando);  // Mostrar icono
+}
+
+/* MAIN ----------------------------------------------------------------------*/
+int main(void) {
+    HAL_Init();  // Inicializar HAL
+    SystemClock_Config();  // Configurar reloj del sistema
+    MX_GPIO_Init();  // Inicializar GPIO
+    MX_USART2_UART_Init();  // UART2 para comunicación serial
+    MX_SPI1_Init();  // SPI1 para comunicación con SD y LCD
+    MX_FATFS_Init();  // Inicializar sistema de archivos
+    MX_UART5_Init();  // UART5 para comunicación con sensor
+
+    // Mostrar menú inicial
+    MostrarMenu();
+
+    // Configuración inicial de pantalla LCD
+    LCD_Init();
+    LCD_Clear(0x00);
+    FillRect(0, 0, 319, 239, 0xFFFF);  // Fondo blanco
+    LCD_Print(intro, 65, 70, 2, 0x39e7, 0xaefd);  // Mensaje de bienvenida
+    LCD_Print(pro, 75, 110, 2, 0x39e7, 0xaefd);
+    LCD_Print(nom, 55, 150, 2, 0x39e7, 0xaefd);
+
+    while (1) {
+        if (estado1 == 1) {  // Si se detecta evento del primer botón
+            HAL_Delay(100);
+            mostrarCargando();  // Mostrar "Cargando"
+            HAL_Delay(1000);
+            estado1 = 0;
+            HAL_UART_Transmit(&huart5, conex, 1, 100);  // Enviar comando al sensor
+
+            // Recibir datos de intensidad lumínica
+            HAL_UART_Receive(&huart5, valores, 2, HAL_MAX_DELAY);
+            int sensorValue = (valores[0] << 8) | valores[1];  // Reconstruir valor
+            sprintf(resultado, "%d", sensorValue);  // Convertir a cadena
+            HAL_UART_Transmit(&huart2, (uint8_t*)resultado, strlen(resultado), 100);
+
+            // Mostrar resultado en pantalla LCD según rango
+            if (sensorValue < 200) {
+                // Luz Baja
+                LCD_Print("Luz Baja", 50, 115, 2, 0xFFFF, 0x0000);
+            } else if (sensorValue < 1000) {
+                // Luz Media
+                LCD_Print("Luz Media", 50, 115, 2, 0x842e, 0x111d);
+            } else {
+                // Luz Alta
+                LCD_Print("Luz Alta", 50, 115, 2, 0x0000, 0xef25);
+            }
+
+            MostrarMenu();  // Volver a mostrar el menú
+        }
+
+        if (estado2 == 1) {  // Si se detecta evento del segundo botón
+            HAL_Delay(100);
+            estado2 = 0;
+            HAL_UART_Transmit(&huart5, conex2, 1, 100);  // Enviar comando
+            DatosSD();  // Guardar datos en la SD
+            MostrarMenu();  // Volver a mostrar el menú
+        }
+    }
+}
