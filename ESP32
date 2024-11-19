@@ -1,0 +1,102 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <hp_BH1750.h>
+#include <Adafruit_NeoPixel.h>
+
+// Declarar sensor de luz BH1750
+hp_BH1750 BH1750; 
+
+// Configuración de NeoPixel
+#define PIN 2                 // Pin donde está conectado el NeoPixel
+#define NUMPIXELS 8           // Número de LEDs en el NeoPixel
+Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+#define DELAYVAL 500          // Retardo entre cambios de color
+
+// Funciones para controlar los colores del NeoPixel
+void encendido() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, pixels.Color(4, 204, 31)); // Verde
+    pixels.show();
+    delay(DELAYVAL);
+  }
+}
+
+void midiendo() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, pixels.Color(217, 227, 16)); // Amarillo
+    pixels.show();
+    delay(DELAYVAL);
+  }
+}
+
+void entregado() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, pixels.Color(191, 9, 244)); // Morado
+    pixels.show();
+    delay(DELAYVAL);
+  }
+}
+
+void sd() {
+  for (int i = 0; i < NUMPIXELS; i++) {
+    pixels.setPixelColor(i, pixels.Color(244, 41, 9)); // Rojo
+    pixels.show();
+    delay(DELAYVAL);
+  }
+}
+
+// Configuración para comunicación UART
+char buffer; // Variable para almacenar los datos recibidos
+
+void setup() {
+  Serial.begin(115200);          // Comunicación con la computadora
+  Serial2.begin(115200);         // Comunicación UART con otro dispositivo
+  bool avail = BH1750.begin(BH1750_TO_GROUND); // Inicializar sensor de luz
+  delay(1000);
+
+  if (!avail) {
+    Serial.println("No BH1750 sensor found!"); // Mensaje si el sensor no se detecta
+    while (true) {};                           // Detener ejecución
+  }
+
+  pixels.begin(); // Inicializar NeoPixel
+  pixels.clear(); // Apagar todos los LEDs
+  encendido();    // Indicar que el sistema está encendido con color verde
+}
+
+void loop() {
+  // Verificar si hay datos disponibles en UART
+  if (Serial2.available() > 0) {
+    buffer = Serial2.read(); // Leer el dato recibido
+    Serial.println(buffer);  // Mostrar el dato recibido en el monitor serial
+
+    if (buffer == '1') { // Botón derecho presionado
+      delay(100);
+      buffer = 0;
+      midiendo();        // Indicar que se está midiendo con color amarillo
+      BH1750.start();    // Iniciar medición en el sensor
+      int lux = BH1750.getLux(); // Obtener valor de luz en lux
+      Serial.println(lux);
+
+      // Dividir valor lux en bytes altos y bajos para enviar por UART
+      uint8_t highByte = (lux >> 8) & 0xFF; 
+      uint8_t lowByte = lux & 0xFF;
+      Serial2.write(highByte);  // Enviar parte alta
+      delay(100);
+      Serial2.write(lowByte);   // Enviar parte baja
+
+      delay(2000);
+      entregado(); // Indicar que la información fue enviada con color morado
+      delay(2500);
+      encendido();
+    }
+
+    if (buffer == '2') { // Botón izquierdo presionado
+      delay(100);
+      buffer = 0;
+      sd(); // Indicar que se almacenaron datos con color rojo
+      delay(2000);
+      encendido();
+    }
+  }
+}
